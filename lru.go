@@ -46,15 +46,20 @@ func (c *LRUCache) init() {
 // Get 根据 key 获取值，并将该节点移到链表头部（最近使用）
 // 返回值和是否存在该 key
 func (c *LRUCache) Get(key string) (string, bool) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if node, ok := c.cache[key]; ok {
-		// 访问后移到头部
-		c.moveToHead(node)
-		return node.value, true
+	c.mutex.RLock()
+	node, ok := c.cache[key]
+	if !ok {
+		c.mutex.RUnlock()
+		return "", false
 	}
-	return "", false
+	val := node.value
+	c.mutex.RUnlock()
+
+	c.mutex.Lock()
+	c.moveToHead(node)
+	c.mutex.Unlock()
+
+	return val, true
 }
 
 // Set 设置 key-value，若 key 已存在则更新值并移到头部
