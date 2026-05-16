@@ -179,6 +179,10 @@ func (c *LRUCache) getNodeFromFreeList() *Node {
 	}
 	node := c.freeList.next
 	c.freeList.next = node.next
+
+	if c.freeList.next != nil {
+		c.freeList.next.prev = c.freeList
+	}
 	// 清除节点引用，避免内存泄漏
 	node.prev = nil
 	node.next = nil
