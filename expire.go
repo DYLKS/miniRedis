@@ -25,15 +25,15 @@ func NewExpireCache(capacity int) *ExpireCache {
 // Get 获取值，支持惰性删除
 // 如果 key 已过期，在获取前先删除
 func (e *ExpireCache) Get(key string) (string, bool) {
-	e.mutex.RLock()
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 	expireAt, exists := e.expires[key]
 	if exists && expireAt > 0 && time.Now().UnixNano() > expireAt {
 		// 已过期，先删除再返回不存在
-		e.mutex.RUnlock()
-		e.Delete(key)
+		delete(e.expires, key)
+		e.cache.Delete(key)
 		return "", false
 	}
-	e.mutex.RUnlock()
 
 	return e.cache.Get(key)
 }
