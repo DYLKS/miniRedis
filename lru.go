@@ -15,6 +15,7 @@ type LRUCache struct {
 	tail     *Node            // 双向链表尾节点（哨兵）
 	freeList *Node            // 空闲节点链表
 	mutex    sync.RWMutex     // 读写锁，支持并发访问
+	onEvict  func(string)     // 淘汰回调函数
 }
 
 // Node 双向链表节点
@@ -94,6 +95,13 @@ func (c *LRUCache) Exists(key string) bool {
 	return ok
 }
 
+// SetOnEvict 设置淘汰回调函数
+func (c *LRUCache) SetOnEvict(fn func(string)) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.onEvict = fn
+}
+
 // Set 设置 key-value，若 key 已存在则更新值并移到头部
 // 若不存在则插入头部，超容量时淘汰尾部节点
 func (c *LRUCache) Set(key, value string) {
@@ -101,13 +109,11 @@ func (c *LRUCache) Set(key, value string) {
 	defer c.mutex.Unlock()
 
 	if node, ok := c.cache[key]; ok {
-		// 键已存在，更新值并移到链表头部
 		node.value = value
 		c.moveToHead(node)
 		return
 	}
 
-	// 键不存在，从 freeList 获取或创建新节点
 	newNode := c.getNodeFromFreeList()
 	if newNode == nil {
 		newNode = &Node{}
@@ -118,11 +124,13 @@ func (c *LRUCache) Set(key, value string) {
 	c.cache[key] = newNode
 	c.addToHead(newNode)
 
-	// 检查是否超过容量，超出则淘汰尾部节点
 	if len(c.cache) > c.capacity {
 		tailNode := c.removeTail()
+		// 触发淘汰回调
+		if c.onEvict != nil {
+			c.onEvict(tailNode.key)
+		}
 		delete(c.cache, tailNode.key)
-		// 将被淘汰的节点放回 freeList
 		c.addToFreeList(tailNode)
 	}
 }
@@ -148,6 +156,10 @@ func (c *LRUCache) SetNoLock(key, value string) {
 
 	if len(c.cache) > c.capacity {
 		tailNode := c.removeTail()
+		// 触发淘汰回调
+		if c.onEvict != nil {
+			c.onEvict(tailNode.key)
+		}
 		delete(c.cache, tailNode.key)
 		c.addToFreeList(tailNode)
 	}

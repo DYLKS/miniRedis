@@ -16,10 +16,18 @@ type ExpireCache struct {
 
 // NewExpireCache 创建带过期功能的缓存
 func NewExpireCache(capacity int) *ExpireCache {
-	return &ExpireCache{
-		cache:   NewLRUCache(capacity),
+	cache := NewLRUCache(capacity)
+	ec := &ExpireCache{
+		cache:   cache,
 		expires: make(map[string]int64),
 	}
+	// 设置 LRU 淘汰回调，同步清理 expires
+	cache.SetOnEvict(func(key string) {
+		ec.mutex.Lock()
+		delete(ec.expires, key)
+		ec.mutex.Unlock()
+	})
+	return ec
 }
 
 // Get 获取值，支持惰性删除
