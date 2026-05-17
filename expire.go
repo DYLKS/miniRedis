@@ -27,42 +27,48 @@ func NewExpireCache(capacity int) *ExpireCache {
 func (e *ExpireCache) Get(key string) (string, bool) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
+
 	expireAt, exists := e.expires[key]
 	if exists && expireAt > 0 && time.Now().UnixNano() > expireAt {
-		// 已过期，先删除再返回不存在
 		delete(e.expires, key)
-		e.cache.Delete(key)
+		e.cache.DeleteNoLock(key)
 		return "", false
 	}
 
-	return e.cache.Get(key)
+	value, ok := e.cache.GetValue(key)
+	return value, ok
 }
 
 // Set 设置值（无过期时间）
 func (e *ExpireCache) Set(key, value string) {
-	e.cache.Set(key, value)
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	delete(e.expires, key)
+	e.cache.SetNoLock(key, value)
 }
 
 // SetWithTTL 设置值并指定过期时间
 // ttl <= 0 表示永不过期
 func (e *ExpireCache) SetWithTTL(key, value string, ttl time.Duration) {
 	e.mutex.Lock()
-	e.cache.Set(key, value)
+	defer e.mutex.Unlock()
+
+	e.cache.SetNoLock(key, value)
 	if ttl > 0 {
-		// 计算过期时间戳（纳秒）
 		e.expires[key] = time.Now().UnixNano() + ttl.Nanoseconds()
 	} else {
 		delete(e.expires, key)
 	}
-	e.mutex.Unlock()
 }
 
 // Delete 删除键（同时删除过期时间和缓存数据）
 func (e *ExpireCache) Delete(key string) bool {
 	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
 	delete(e.expires, key)
-	e.mutex.Unlock()
-	return e.cache.Delete(key)
+	return e.cache.DeleteNoLock(key)
 }
 
 // GetAll 获取所有非过期的键值对
@@ -73,9 +79,9 @@ func (e *ExpireCache) GetAll() map[string]string {
 	result := make(map[string]string)
 	now := time.Now().UnixNano()
 
-	for key, value := range e.cache.GetAll() {
-		expireAt, exits := e.expires[key]
-		if !exits || expireAt <= 0 || now <= expireAt {
+	for key, value := range e.cache.GetAllNoLock() {
+		expireAt, exists := e.expires[key]
+		if !exists || expireAt <= 0 || now <= expireAt {
 			result[key] = value
 		}
 	}
@@ -100,7 +106,7 @@ func (e *ExpireCache) cleanExpired() {
 	for key, expireAt := range e.expires {
 		if expireAt > 0 && now > expireAt {
 			delete(e.expires, key)
-			e.cache.Delete(key)
+			e.cache.DeleteNoLock(key)
 		}
 	}
 }
@@ -116,9 +122,7 @@ func (e *ExpireCache) TTL(key string) int64 {
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
 
-	// 先检查缓存中是否存在该 key
-	_, existsInCache := e.cache.Get(key)
-	if !existsInCache {
+	if !e.cache.Exists(key) {
 		return -2
 	}
 

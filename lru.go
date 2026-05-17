@@ -64,20 +64,34 @@ func (c *LRUCache) initFreeList() {
 // Get 根据 key 获取值，并将该节点移到链表头部（最近使用）
 // 返回值和是否存在该 key
 func (c *LRUCache) Get(key string) (string, bool) {
-	c.mutex.RLock()
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	node, ok := c.cache[key]
 	if !ok {
-		c.mutex.RUnlock()
 		return "", false
 	}
 	val := node.value
-	c.mutex.RUnlock()
-
-	c.mutex.Lock()
 	c.moveToHead(node)
-	c.mutex.Unlock()
-
 	return val, true
+}
+
+// GetValue 获取值但不移动到头部（供外部在持有锁时调用）
+// 返回值和是否存在该 key
+// 注意：调用者必须持有锁！
+func (c *LRUCache) GetValue(key string) (string, bool) {
+	node, ok := c.cache[key]
+	if !ok {
+		return "", false
+	}
+	return node.value, true
+}
+
+// Exists 检查 key 是否存在（不移动节点，不加锁）
+// 注意：调用者必须持有锁！
+func (c *LRUCache) Exists(key string) bool {
+	_, ok := c.cache[key]
+	return ok
 }
 
 // Set 设置 key-value，若 key 已存在则更新值并移到头部
@@ -113,6 +127,32 @@ func (c *LRUCache) Set(key, value string) {
 	}
 }
 
+// SetNoLock 设置值（不加锁，供外部在持有锁时调用）
+// 注意：调用者必须持有锁！
+func (c *LRUCache) SetNoLock(key, value string) {
+	if node, ok := c.cache[key]; ok {
+		node.value = value
+		c.moveToHead(node)
+		return
+	}
+
+	newNode := c.getNodeFromFreeList()
+	if newNode == nil {
+		newNode = &Node{}
+	}
+	newNode.key = key
+	newNode.value = value
+
+	c.cache[key] = newNode
+	c.addToHead(newNode)
+
+	if len(c.cache) > c.capacity {
+		tailNode := c.removeTail()
+		delete(c.cache, tailNode.key)
+		c.addToFreeList(tailNode)
+	}
+}
+
 // Delete 删除指定 key，从链表和 map 中移除
 func (c *LRUCache) Delete(key string) bool {
 	c.mutex.Lock()
@@ -128,11 +168,33 @@ func (c *LRUCache) Delete(key string) bool {
 	return false
 }
 
+// DeleteNoLock 删除键（不加锁，供外部在持有锁时调用）
+// 注意：调用者必须持有锁！
+func (c *LRUCache) DeleteNoLock(key string) bool {
+	if node, ok := c.cache[key]; ok {
+		c.removeNode(node)
+		delete(c.cache, key)
+		c.addToFreeList(node)
+		return true
+	}
+	return false
+}
+
 // GetAll 获取所有键值对，用于持久化存储
 func (c *LRUCache) GetAll() map[string]string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
+	result := make(map[string]string)
+	for key, node := range c.cache {
+		result[key] = node.value
+	}
+	return result
+}
+
+// GetAllNoLock 获取所有键值对（不加锁，供外部在持有锁时调用）
+// 注意：调用者必须持有锁！
+func (c *LRUCache) GetAllNoLock() map[string]string {
 	result := make(map[string]string)
 	for key, node := range c.cache {
 		result[key] = node.value
