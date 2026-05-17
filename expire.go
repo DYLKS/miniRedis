@@ -105,15 +105,22 @@ func (e *ExpireCache) cleanExpired() {
 	}
 }
 
-// TTL 返回 key 的剩余生存时间
+// TTL 返回 key 的剩余生存时间（毫秒）
 // 返回值：
 //
-//	-1: key 不存在或永不过期
+//	-2: key 不存在
+//	-1: key 存在但永不过期
 //	 0: key 已过期
-//	>0: 剩余时间（纳秒）
-func (e *ExpireCache) TTL(key string) time.Duration {
+//	>0: 剩余时间（毫秒）
+func (e *ExpireCache) TTL(key string) int64 {
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
+
+	// 先检查缓存中是否存在该 key
+	_, existsInCache := e.cache.Get(key)
+	if !existsInCache {
+		return -2
+	}
 
 	expireAt, exists := e.expires[key]
 	if !exists || expireAt <= 0 {
@@ -124,5 +131,5 @@ func (e *ExpireCache) TTL(key string) time.Duration {
 	if remaining <= 0 {
 		return 0
 	}
-	return time.Duration(remaining)
+	return remaining / 1e6
 }

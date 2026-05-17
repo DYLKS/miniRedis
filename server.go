@@ -261,7 +261,7 @@ func (s *TCPServer) handleReplicaOf(args []RESPValue) RESPValue {
 }
 
 // handleTTL 返回 key 的剩余生存时间（毫秒）
-// -1 表示永久存在，-2 表示不存在
+// -2 表示 key 不存在，-1 表示永久存在
 func (s *TCPServer) handleTTL(args []RESPValue) RESPValue {
 	if len(args) != 1 {
 		return EncodeError("wrong number of arguments")
@@ -269,10 +269,7 @@ func (s *TCPServer) handleTTL(args []RESPValue) RESPValue {
 
 	key := string(args[0].Bulk)
 	ttl := s.cache.TTL(key)
-	if ttl < 0 {
-		return EncodeInteger(-1)
-	}
-	return EncodeInteger(int64(ttl / time.Millisecond))
+	return EncodeInteger(ttl)
 }
 
 // handleCluster 处理集群相关命令
