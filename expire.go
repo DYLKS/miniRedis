@@ -67,7 +67,19 @@ func (e *ExpireCache) Delete(key string) bool {
 
 // GetAll 获取所有非过期的键值对
 func (e *ExpireCache) GetAll() map[string]string {
-	return e.cache.GetAll()
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
+	result := make(map[string]string)
+	now := time.Now().UnixNano()
+
+	for key, value := range e.cache.GetAll() {
+		expireAt, exits := e.expires[key]
+		if !exits || expireAt <= 0 || now <= expireAt {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 // StartExpireLoop 启动定时过期清理协程
